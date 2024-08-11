@@ -1,18 +1,18 @@
 /****************************************************************************
  Copyright (c) 2017-2018 Xiamen Yaji Software Co., Ltd.
- 
+
  https://axmol.dev/
- 
+
  Permission is hereby granted, free of charge, to any person obtaining a copy
  of this software and associated documentation files (the "Software"), to deal
  in the Software without restriction, including without limitation the rights
  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  copies of the Software, and to permit persons to whom the Software is
  furnished to do so, subject to the following conditions:
- 
+
  The above copyright notice and this permission notice shall be included in
  all copies or substantial portions of the Software.
- 
+
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -24,23 +24,25 @@
 
 package org.axmol.lib;
 
-import android.annotation.TargetApi;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.View;
-import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.webkit.WebSettings;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 
 public class WebViewHelper {
@@ -113,6 +115,54 @@ public class WebViewHelper {
             }
         });
     }
+
+    @SuppressWarnings("unused")
+    public static void setAllowFileAccess(final int index, final boolean bAllow) {
+        final CountDownLatch latch = new CountDownLatch(1);
+        sAxmolActivity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                AxmolWebView webView = webViews.get(index);
+                if (webView != null) {
+                    WebSettings settings = webView.getSettings();
+                    settings.setAllowFileAccess(bAllow);
+                    settings.setAllowFileAccessFromFileURLs(bAllow);
+                    settings.setAllowUniversalAccessFromFileURLs(bAllow);
+                }
+
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // @SuppressWarnings("unused")
+    // public static boolean isAllowFileAccess(final int index) {
+    //     Callable<Boolean> callable  = new Callable<Boolean>() {
+    //         @Override
+    //         public Boolean call() throws Exception {
+    //             AxmolWebView webView = webViews.get(index);
+    //             if (webView != null) {
+    //                 WebSettings settings = webView.getSettings();
+    //                 return settings.getAllowFileAccess() || settings.getAllowFileAccessFromFileURLs() || settings.getAllowUniversalAccessFromFileURLs;
+    //             }
+    //             return false;
+    //         }
+    //     };
+    //     FutureTask<Boolean> futureTask = new FutureTask<>(callable);
+    //     sAxmolActivity.runOnUiThread(futureTask);
+    //     try {
+    //         Boolean result = futureTask.get();
+    //         return result;
+    //     } catch (InterruptedException | ExecutionException e) {
+    //         e.printStackTrace();
+    //     }
+    //     return false;
+    // }
 
     public static void setVisible(final int index, final boolean visible) {
         sAxmolActivity.runOnUiThread(new Runnable() {

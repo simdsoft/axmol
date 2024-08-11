@@ -49,6 +49,8 @@
 
 using namespace webview_common;
 
+static bool s_allowFileAccess = false;
+
 namespace webkit_dmabuf
 {
 
@@ -459,6 +461,11 @@ public:
             return false;
 
         webkit_settings_set_javascript_can_access_clipboard(settings, true);
+        if (s_allowFileAccess) {
+            webkit_settings_set_disable_web_security(settings, true);
+            webkit_settings_set_allow_file_access_from_file_urls(settings, true);
+            webkit_settings_set_allow_universal_access_from_file_urls(settings, true);
+        }
 
         gtk_widget_grab_focus(GTK_WIDGET(m_WebView));
         gtk_widget_show_all(m_Window);
@@ -510,18 +517,7 @@ public:
     void loadFile(std::string_view filePath)
     {
         auto fullPath = FileUtils::getInstance()->fullPathForFilename(filePath);
-        if (fullPath.find("file:///") != 0)
-        {
-            if (fullPath[0] == '/')
-            {
-                fullPath = "file://" + fullPath;
-            }
-            else
-            {
-                fullPath = "file:///" + fullPath;
-            }
-        }
-        loadURL(fullPath, false);
+        loadURL(utils::filePathToUrl(std::forward<std::string>(fullPath)), false);
     }
 
     void loadURL(std::string_view url, bool cleanCachedData)
@@ -742,6 +738,8 @@ WebViewImpl::~WebViewImpl()
         _gtkWebKit = nullptr;
     }
 }
+
+void WebViewImpl::setAllowFileAccess(bool bAllow) { s_allowFileAccess = bAllow; }
 
 void WebViewImpl::loadData(const Data& data,
                            std::string_view MIMEType,

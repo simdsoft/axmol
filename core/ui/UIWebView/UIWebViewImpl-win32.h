@@ -60,6 +60,8 @@ public:
     WebViewImpl(ax::ui::WebView* webView);
     virtual ~WebViewImpl();
 
+    static void setAllowFileAccess(bool bAllow);
+
     void setJavascriptInterfaceScheme(std::string_view scheme);
     void loadData(const ax::Data& data,
                   std::string_view MIMEType,

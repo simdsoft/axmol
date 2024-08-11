@@ -26,6 +26,8 @@
 #import <WebKit/WKWebView.h>
 #import <WebKit/WKUIDelegate.h>
 #import <WebKit/WKNavigationDelegate.h>
+#import <WebKit/WebKit.h>
+#import <WebKit/WKURLSchemeTask.h>
 
 #include "ui/UIWebView/UIWebViewImpl-ios.h"
 #include "ui/UIWebView/UIWebView.h"
@@ -35,7 +37,35 @@
 #include "platform/ios/EAGLView-ios.h"
 #include "platform/FileUtils.h"
 
-@interface UIWebViewWrapper : NSObject
+static bool s_allowFileAccess = false;
+
+@interface WKWebView (SchemeHandle)
+
+@end
+
+#import <objc/runtime.h>
+
+@implementation WKWebView (SchemeHandle)
+
++ (void)load {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Method originalMethod = class_getClassMethod(self, @selector(handlesURLScheme:));
+        Method swizzledMethod = class_getClassMethod(self, @selector(__handlesURLScheme:));
+        method_exchangeImplementations(originalMethod, swizzledMethod);
+    });
+}
+
++ (BOOL)__handlesURLScheme:(NSString *)urlScheme {
+    if ([urlScheme isEqualToString:@"file"]) {
+        return NO;
+    } else {
+        return [self __handlesURLScheme:urlScheme];
+    }
+}
+@end
+
+@interface UIWebViewWrapper : NSObject<WKURLSchemeHandler>
 @property(nonatomic) std::function<bool(std::string url)> shouldStartLoading;
 @property(nonatomic) std::function<void(std::string url)> didFinishLoading;
 @property(nonatomic) std::function<void(std::string url)> didFailLoading;
@@ -86,7 +116,6 @@
 
 @interface UIWebViewWrapper () <WKUIDelegate, WKNavigationDelegate>
 @property(nonatomic) WKWebView* wkWebView;
-
 @property(nonatomic, copy) NSString* jsScheme;
 @end
 
@@ -126,9 +155,22 @@
 {
     if (!self.wkWebView)
     {
-        self.wkWebView                    = [[WKWebView alloc] init];
+        auto rect = CGRectMake(0, 0, 1, 1);
+        auto wkWebViewConfig = [WKWebViewConfiguration new];
+        //WKPreferences* prefs = [[WKPreferences alloc] init];
+        //[wkWebViewConfig setValue:@TRUE forKey:@"allowUniversalAccessFromFileURLs"];
+        //[prefs setValue:@TRUE forKey:@"javaScriptCanOpenWindowsAutomatically"];
+        //[prefs setValue:@TRUE forKey:@"allowFileAccessFromFileURLs"];
+        //prefs.javaScriptEnabled = YES;
+        //wkWebViewConfig.preferences = prefs;
+        if (s_allowFileAccess)
+            [wkWebViewConfig setURLSchemeHandler:self forURLScheme:@"file"];
+        
+        self.wkWebView                    = [[WKWebView alloc] initWithFrame:rect configuration:wkWebViewConfig];
         self.wkWebView.UIDelegate         = self;
         self.wkWebView.navigationDelegate = self;
+        
+        [wkWebViewConfig release];
     }
     if (!self.wkWebView.superview)
     {
@@ -136,6 +178,51 @@
         auto eaglView = (EAGLView*)view->getEAGLView();
         [eaglView addSubview:self.wkWebView];
     }
+}
+
+# pragma mark - WKURLSchemeHandler callbacks
+
++ (NSString*) fileToMIMEType:(NSString*) filePath {
+    if([filePath hasSuffix:@".png"])
+        return @"image/png";
+    else if([filePath hasSuffix:@".jpg"])
+        return @"image/jpg";
+    else if([filePath hasSuffix:@".gif"])
+        return @"image/gif";
+    else if([filePath hasSuffix:@".webp"])
+        return @"image/webp";
+    else if([filePath hasSuffix:@".html"] || [filePath hasSuffix:@".htm"])
+        return @"text/html";
+    return nil;
+}
+
+- (void)webView:(WKWebView *)webView startURLSchemeTask:(id <WKURLSchemeTask>)task {
+    auto fileURL = task.request.URL;
+    if ([fileURL.scheme isEqualToString:@"file"]) {
+        auto filePath = fileURL.path;
+        auto mimeType = [UIWebViewWrapper fileToMIMEType:filePath];
+        if (mimeType != nil) {
+            NSData *fileData = [NSData dataWithContentsOfFile:filePath];
+            if(fileData) {
+                NSInteger expectedContentLength = fileData.length;
+                NSDictionary *headers = @{@"Content-Type": mimeType};
+                
+                NSURLResponse *response = [[NSURLResponse alloc] initWithURL:fileURL MIMEType:mimeType expectedContentLength:expectedContentLength textEncodingName:nil];
+                
+                [task didReceiveResponse:response];
+                [task didReceiveData:fileData];
+                [task didFinish];
+                
+#if !__has_feature(objc_arc)
+                [response release];
+#endif
+            }
+        }
+    }
+}
+
+- (void)webView:(WKWebView *)webView stopURLSchemeTask:(id <WKURLSchemeTask>)task {
+    NSLog(@"stopURLScheme");
 }
 
 - (void)setVisible:(bool)visible
@@ -216,9 +303,17 @@
     {
         [self setupWebView];
     }
-    auto path = [[NSBundle mainBundle] resourcePath];
-    path      = [path stringByAppendingPathComponent:@(baseURL.data())];
-    auto url  = [NSURL fileURLWithPath:path];
+   
+    NSURL* url = nil;
+    if (baseURL.empty() || baseURL[0] != '/') {
+        auto path = [[NSBundle mainBundle] resourcePath];
+        path      = [path stringByAppendingPathComponent:@(baseURL.data())];
+        url  = [NSURL fileURLWithPath:path];
+    }
+    else {
+        auto path = [NSString stringWithUTF8String:baseURL.data()];
+        url  = [NSURL fileURLWithPath:path];
+    }
     [self.wkWebView loadHTMLString:@(string.data()) baseURL:url];
 }
 
@@ -410,6 +505,11 @@ WebViewImpl::~WebViewImpl()
 {
     [_uiWebViewWrapper release];
     _uiWebViewWrapper = nullptr;
+}
+
+void WebViewImpl::setAllowFileAccess(bool bAllow)
+{
+    s_allowFileAccess = bAllow;
 }
 
 void WebViewImpl::setJavascriptInterfaceScheme(std::string_view scheme)

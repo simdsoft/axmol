@@ -237,6 +237,11 @@ public class AxmolEngine {
     public static String getPackageName() {
         return AxmolEngine.sPackageName;
     }
+
+    /*
+      sActivity.getFilesDir(): /data/data/<package_name>/files/
+      sActivity.getExternalFilesDir(null): /storage/emulated/0/Android/data/<package_name>/files/
+    */
     public static String getWritablePath() {
         return sActivity.getFilesDir().getAbsolutePath();
     }

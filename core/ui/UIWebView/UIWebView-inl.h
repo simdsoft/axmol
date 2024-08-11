@@ -2,7 +2,7 @@
  Copyright (c) 2014-2016 Chukong Technologies Inc.
  Copyright (c) 2017-2018 Xiamen Yaji Software Co., Ltd.
  Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
- 
+
  https://axmol.dev/
 
  Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,10 +31,10 @@
     (AX_TARGET_PLATFORM == AX_PLATFORM_ANDROID || AX_TARGET_PLATFORM == AX_PLATFORM_IOS || \
      AX_TARGET_PLATFORM == AX_PLATFORM_LINUX)
 
-#include "ui/UIWebView/UIWebView.h"
-#include "platform/GLView.h"
-#include "base/Director.h"
-#include "platform/FileUtils.h"
+#    include "ui/UIWebView/UIWebView.h"
+#    include "platform/GLView.h"
+#    include "base/Director.h"
+#    include "platform/FileUtils.h"
 
 NS_AX_BEGIN
 namespace ui
@@ -56,6 +56,11 @@ WebView* WebView::create()
     }
     AX_SAFE_DELETE(webView);
     return nullptr;
+}
+
+void WebView::setAllowFileAccess(bool bAllow)
+{
+    WebViewImpl::setAllowFileAccess(bAllow);
 }
 
 void WebView::setJavascriptInterfaceScheme(std::string_view scheme)
@@ -244,4 +249,4 @@ NS_AX_END  // namespace ax
 
 #endif
 
-/// @endcond
+    /// @endcond

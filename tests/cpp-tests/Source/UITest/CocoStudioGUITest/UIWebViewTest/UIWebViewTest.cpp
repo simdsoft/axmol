@@ -1,6 +1,7 @@
 /****************************************************************************
  Copyright (c) 2013-2016 Chukong Technologies Inc.
  Copyright (c) 2017-2018 Xiamen Yaji Software Co., Ltd.
+ Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
 
  https://axmol.dev/
 
@@ -37,6 +38,8 @@ bool WebViewTest::init()
 {
     if (UIScene::init())
     {
+        ui::WebView::setAllowFileAccess(true);
+
         Size winSize = Director::getInstance()->getVisibleSize();
 
         _webView = ax::ui::WebView::create();
@@ -112,13 +115,30 @@ bool WebViewTest::init()
         this->addChild(loadFileBtn);
 
         Button* loadHTMLBtn = Button::create("cocosui/animationbuttonnormal.png", "cocosui/animationbuttonpressed.png");
+        auto fu               = FileUtils::getInstance();
+        std::string internalImagePath = "Images/Icon.png";
+        auto imagePath     = fu->getNativeWritableAbsolutePath() + internalImagePath;
+        auto imageDir = FileUtils::getPathDirName(imagePath) + "/";
+        if (!fu->isFileExistInternal(imagePath)) {
+            auto fileData = fu->getDataFromFile(internalImagePath);
+            if (!fu->isDirectoryExistInternal(imageDir)) {
+                fu->createDirectories(imageDir);
+            }
+            bool success = fu->writeDataToFile(fileData, imagePath);
+            AXLOGD("create {} {}", imagePath, success ? "success" : "fail");
+        }
+        else {
+            AXLOGD("the image {} already exist", imagePath);
+        }
+
         loadHTMLBtn->setTitleText("Load Data");
         loadHTMLBtn->setPosition(
             Vec2(winSize / 2) -
             Vec2(_webView->getContentSize().width / 2 + loadHTMLBtn->getContentSize().width / 2 + 10, 0));
-        loadHTMLBtn->addClickEventListener([=](Object*) {
-            _webView->loadHTMLString("<body style=\"font-size:50px;\">Hello World <img src=\"Icon.png\"/> </body>",
-                                     "Images/");
+        loadHTMLBtn->addClickEventListener([=](Object*) mutable{
+            auto strHTML = fmt::format("<body style=\"font-size:50px;\">Hello World <img src=\"{}\"/> </body>",
+                                       utils::filePathToUrl(std::forward<std::string>(imagePath)));
+            _webView->loadHTMLString(strHTML, "" /*msedge webview2 not support baseURL*/);
         });
         this->addChild(loadHTMLBtn);
 

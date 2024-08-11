@@ -188,18 +188,27 @@ NS_AX_BEGIN
 namespace ui
 {
 
+static bool s_AllowFileAccess = false;
 static std::unordered_map<int, ax::ui::WebViewImpl*> s_WebViewImpls;
 
 WebViewImpl::WebViewImpl(WebView* webView) : _viewTag(-1), _webView(webView)
 {
     _viewTag                 = createWebViewJNI();
     s_WebViewImpls[_viewTag] = this;
+    
+    if(s_AllowFileAccess)
+        JniHelper::callStaticVoidMethod(className, "setAllowFileAccess", _viewTag, true);
 }
 
 WebViewImpl::~WebViewImpl()
 {
     JniHelper::callStaticVoidMethod(className, "removeWebView", _viewTag);
     s_WebViewImpls.erase(_viewTag);
+}
+
+void WebViewImpl::setAllowFileAccess(bool bAllow)
+{
+    s_AllowFileAccess = bAllow;
 }
 
 void WebViewImpl::loadData(const Data& data,

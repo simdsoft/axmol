@@ -53,6 +53,8 @@ public:
 
     virtual ~WebViewImpl();
 
+    static void setAllowFileAccess(bool bAllow);
+
     void setJavascriptInterfaceScheme(std::string_view scheme);
 
     void loadData(const ax::Data& data,

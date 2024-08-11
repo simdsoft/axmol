@@ -45,6 +45,8 @@
 #    include <utility>
 #    include <stdlib.h>
 #    include <Windows.h>
+#    include <wrl/client.h>
+#    include <WebView2EnvironmentOptions.h>
 
 #    pragma comment(lib, "user32.lib")
 #    pragma comment(lib, "Shlwapi.lib")
@@ -62,6 +64,8 @@ USING_NS_AX;
 using namespace webview_common;
 
 using msg_cb_t = std::function<void(std::string_view)>;
+
+static bool s_allowFileAccess = false;
 
 template <class ArgType>
 static std::string getUriStringFromArgs(ArgType* args)
@@ -131,8 +135,8 @@ public:
     void setBackgroundTransparent();
 
 private:
-    ICoreWebView2* m_webview              = nullptr;
-    ICoreWebView2Controller* m_controller = nullptr;
+    ICoreWebView2* m_webview{nullptr};
+    ICoreWebView2Controller* m_controller{nullptr};
     HWND m_window{};
     POINT m_minsz       = POINT{0, 0};
     POINT m_maxsz       = POINT{0, 0};
@@ -173,47 +177,53 @@ private:
         std::wstring userDataFolder  = ntcvt::from_chars(std::getenv("APPDATA"), CP_ACP);
         std::wstring currentExeNameW = ntcvt::from_chars(currentExeName, CP_ACP);
 
+        // https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags?tabs=dotnetcsharp
+        Microsoft::WRL::ComPtr<CoreWebView2EnvironmentOptions> options;
+        if (s_allowFileAccess && (options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>()))
+            options->put_AdditionalBrowserArguments(
+                L"--disable-web-security --allow-file-access-from-files");
+
         HRESULT res = CreateCoreWebView2EnvironmentWithOptions(
-            nullptr, (userDataFolder + L"/" + currentExeNameW).c_str(), nullptr,
+            nullptr, (userDataFolder + L"/" + currentExeNameW).c_str(), options.Get(),
             new webview2_com_handler(
                 wnd, cb,
                 [&](ICoreWebView2Controller* controller) {
-                    m_controller = controller;
-                    m_controller->get_CoreWebView2(&m_webview);
-                    m_webview->AddRef();
-                    flag.clear();
-                },
+            m_controller = controller;
+            m_controller->get_CoreWebView2(&m_webview);
+            m_webview->AddRef();
+            flag.clear();
+        },
                 [this](std::string_view url) -> bool {
-                    const auto scheme = url.substr(0, url.find_first_of(':'));
-                    if (scheme == m_jsScheme)
-                    {
-                        if (_onJsCallback)
-                        {
-                            _onJsCallback(url);
-                        }
-                        return true;
-                    }
+            const auto scheme = url.substr(0, url.find_first_of(':'));
+            if (scheme == m_jsScheme)
+            {
+                if (_onJsCallback)
+                {
+                    _onJsCallback(url);
+                }
+                return true;
+            }
 
-                    if (_shouldStartLoading && !url.empty())
-                    {
-                        return _shouldStartLoading(url);
-                    }
-                    return true;
-                },
+            if (_shouldStartLoading && !url.empty())
+            {
+                return _shouldStartLoading(url);
+            }
+            return true;
+        },
                 [this]() {
-                    LPWSTR uri;
-                    this->m_webview->get_Source(&uri);
-                    std::string result = ntcvt::from_chars(uri);
-                    if (_didFinishLoading)
-                        _didFinishLoading(result);
-                },
+            LPWSTR uri;
+            this->m_webview->get_Source(&uri);
+            std::string result = ntcvt::from_chars(uri);
+            if (_didFinishLoading)
+                _didFinishLoading(result);
+        },
                 [this]() {
-                    LPWSTR uri;
-                    this->m_webview->get_Source(&uri);
-                    std::string result = ntcvt::from_chars(uri);
-                    if (_didFailLoading)
-                        _didFailLoading(result);
-                },
+            LPWSTR uri;
+            this->m_webview->get_Source(&uri);
+            std::string result = ntcvt::from_chars(uri);
+            if (_didFailLoading)
+                _didFailLoading(result);
+        },
                 [this](std::string_view url) { loadURL(url, false); }));
 
         if (res != S_OK)
@@ -289,9 +299,12 @@ private:
                                  public ICoreWebView2NavigationCompletedEventHandler,
                                  public ICoreWebView2NewWindowRequestedEventHandler,
                                  public ICoreWebView2ContentLoadingEventHandler,
-                                 public ICoreWebView2DOMContentLoadedEventHandler
+                                 public ICoreWebView2DOMContentLoadedEventHandler,
+                                 public ICoreWebView2WebResourceRequestedEventHandler
     {
         using webview2_com_handler_cb_t = std::function<void(ICoreWebView2Controller*)>;
+        template <typename _T>
+        using com_ptr = Microsoft::WRL::ComPtr<_T>;
 
     public:
         webview2_com_handler(HWND hwnd,
@@ -309,6 +322,9 @@ private:
             , m_navErrorCallback(std::move(navErrorCallback))
             , m_loadUrlCallback(std::move(loadUrlCallback))
         {}
+
+        ICoreWebView2Environment* m_env{nullptr};
+
         ULONG STDMETHODCALLTYPE AddRef() { return 1; }
         ULONG STDMETHODCALLTYPE Release() { return 1; }
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, LPVOID* ppv) { return S_OK; }
@@ -316,7 +332,9 @@ private:
         // ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
         HRESULT STDMETHODCALLTYPE Invoke(HRESULT res, ICoreWebView2Environment* env)
         {
+            m_env = env;
             env->CreateCoreWebView2Controller(m_window, this);
+
             return S_OK;
         }
 
@@ -335,7 +353,55 @@ private:
             webview->add_ContentLoading(this, &token);
             webview->add_NewWindowRequested(this, &token);
 
+            if (s_allowFileAccess)
+            {
+                webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE);
+                webview->add_WebResourceRequested(this, &token);
+            }
+
             m_cb(controller);
+            return S_OK;
+        }
+
+        // refer: https://github.com/MicrosoftEdge/WebView2Feedback/blob/main/specs/GetEnvironment.md
+        // refer: https://github.com/microsoft/wil
+        HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, ICoreWebView2WebResourceRequestedEventArgs* args)
+        {
+            LPWSTR uri{nullptr};
+            com_ptr<ICoreWebView2WebResourceRequest> request;
+            args->get_Request(&request);
+            request->get_Uri(&uri);
+            std::wstring_view wuri = uri;
+
+            if (cxx20::starts_with(wuri, L"file:///"))
+            {
+                auto filePath = wuri.substr(8);
+
+                std::wstring_view contentType;
+                if (cxx20::ic::ends_with(filePath, L".png"))
+                    contentType = L"image/png";
+                else if (cxx20::ic::ends_with(filePath, L".gif"))
+                    contentType = L"image/gif";
+                else if (cxx20::ic::ends_with(filePath, L".bmp"))
+                    contentType = L"image/bmp";
+                else
+                    contentType = L"image/jpeg";
+
+                // auto imageData   = FileUtils::getInstance()->getDataFromFile(ntcvt::from_chars(filePath));
+                // auto imageStream = SHCreateMemStream((BYTE*)imageData.getBytes(), imageData.getSize());
+                com_ptr<IStream> imageStream;
+                SHCreateStreamOnFileW(filePath.data(), 0, &imageStream);
+                if (imageStream)
+                {
+                    std::wstring strContentType = L"Content-Type: ";
+                    strContentType += contentType;
+                    com_ptr<ICoreWebView2WebResourceResponse> response;
+                    m_env->CreateWebResourceResponse(imageStream.Get(), 200, L"OK", strContentType.c_str(),
+                                                     response.GetAddressOf());
+                    args->put_Response(response.Get());
+                }
+            }
+            CoTaskMemFree(uri);
             return S_OK;
         }
 
@@ -465,34 +531,34 @@ WebViewImpl::WebViewImpl(WebView* webView) : _createSucceeded(false), _systemWeb
 
     _createSucceeded = _systemWebControl->createWebView(
         [this](std::string_view url) -> bool {
-            const auto shouldStartLoading = _webView->getOnShouldStartLoading();
-            if (shouldStartLoading != nullptr)
-            {
-                return shouldStartLoading(_webView, url);
-            }
-            return true;
-        },
+        const auto shouldStartLoading = _webView->getOnShouldStartLoading();
+        if (shouldStartLoading != nullptr)
+        {
+            return shouldStartLoading(_webView, url);
+        }
+        return true;
+    },
         [this](std::string_view url) {
-            WebView::ccWebViewCallback didFinishLoading = _webView->getOnDidFinishLoading();
-            if (didFinishLoading != nullptr)
-            {
-                didFinishLoading(_webView, url);
-            }
-        },
+        WebView::ccWebViewCallback didFinishLoading = _webView->getOnDidFinishLoading();
+        if (didFinishLoading != nullptr)
+        {
+            didFinishLoading(_webView, url);
+        }
+    },
         [this](std::string_view url) {
-            WebView::ccWebViewCallback didFailLoading = _webView->getOnDidFailLoading();
-            if (didFailLoading != nullptr)
-            {
-                didFailLoading(_webView, url);
-            }
-        },
+        WebView::ccWebViewCallback didFailLoading = _webView->getOnDidFailLoading();
+        if (didFailLoading != nullptr)
+        {
+            didFailLoading(_webView, url);
+        }
+    },
         [this](std::string_view url) {
-            WebView::ccWebViewCallback onJsCallback = _webView->getOnJSCallback();
-            if (onJsCallback != nullptr)
-            {
-                onJsCallback(_webView, url);
-            }
-        });
+        WebView::ccWebViewCallback onJsCallback = _webView->getOnJSCallback();
+        if (onJsCallback != nullptr)
+        {
+            onJsCallback(_webView, url);
+        }
+    });
 }
 
 WebViewImpl::~WebViewImpl()
@@ -503,6 +569,11 @@ WebViewImpl::~WebViewImpl()
         delete _systemWebControl;
         _systemWebControl = nullptr;
     }
+}
+
+void WebViewImpl::setAllowFileAccess(bool bAllow)
+{
+    s_allowFileAccess = bAllow;
 }
 
 void WebViewImpl::loadData(const Data& data,
@@ -670,18 +741,19 @@ void WebViewImpl::setBackgroundTransparent()
 }  // namespace ui
 NS_AX_END  // namespace ax
 
-//
-// Implement Win32WebControl
-//
-bool Win32WebControl::s_isInitialized = false;
+    //
+    // Implement Win32WebControl
+    //
+    bool Win32WebControl::s_isInitialized = false;
 
 void Win32WebControl::lazyInit()
 {
 #    if AX_TARGET_PLATFORM != AX_PLATFORM_WINRT
     // reset the main windows style so that its drawing does not cover the webview sub window
     auto hwnd        = ax::Director::getInstance()->getGLView()->getWin32Window();
-    const auto style = GetWindowLong(hwnd, GWL_STYLE);
-    SetWindowLong(hwnd, GWL_STYLE, style | WS_CLIPCHILDREN);
+    auto style = GetWindowLong(hwnd, GWL_STYLE);
+    bool hasStyle    = !!(style & WS_OVERLAPPED);
+    SetWindowLong(hwnd, GWL_STYLE, style | WS_OVERLAPPED | WS_CLIPCHILDREN);
 
     std::ignore = CoInitialize(NULL);
 #    endif

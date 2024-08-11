@@ -54,6 +54,12 @@ class AX_GUI_DLL WebView : public ax::ui::Widget
 {
 public:
     /**
+    * For security policy, by defalt local file access was disabled
+    * This API is global and only works before WebView::create
+    */
+    static void setAllowFileAccess(bool bAllow);
+
+    /**
      * Allocates and initializes a WebView.
      */
     static WebView* create();
@@ -73,10 +79,7 @@ public:
      * @param encoding The encoding of the data.
      * @param baseURL The base URL for the content.
      */
-    void loadData(const ax::Data& data,
-                  std::string_view MIMEType,
-                  std::string_view encoding,
-                  std::string_view baseURL);
+    void loadData(const ax::Data& data, std::string_view MIMEType, std::string_view encoding, std::string_view baseURL);
 
     /**
      * Sets the main page content and base URL.
@@ -256,5 +259,5 @@ NS_AX_END  // namespace ax
 
 #endif
 
-// end group
-/// @}
+    // end group
+    /// @}
