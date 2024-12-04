@@ -30,7 +30,7 @@ if (($stage -band 1)) {
     $lib_path = Join-Path $AX_ROOT "tools/bindings-generator/libclang/$lib_name"
     if (!(Test-Path $lib_path -PathType Leaf)) {
         setup_7z
-        $llvm_ver = '15.0.7'
+        $llvm_ver = '19.1.5'
         $llvm_pkg = "llvm-$llvm_ver.7z"
 
         $prefix = Join-Path $AX_ROOT "cache/devtools"
