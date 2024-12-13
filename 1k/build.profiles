@@ -47,11 +47,11 @@ min_sdk=17
 
 # The gradle version, @setup.ps1
 # as latest as possible
-gradle=8.10
+gradle=8.11.1
 
 # The android gradle plugin, @setup.ps1
 # as stable as possible, match with build-tools,android-studio
-agp=8.6.0
+agp=8.7.3
 
 # The android build-tools, @axmol-cmdline @gradle
 # as stable as possible, match with agp,android-studio
