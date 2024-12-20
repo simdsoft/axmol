@@ -818,7 +818,7 @@ function find_vs() {
         
         # refer: https://learn.microsoft.com/en-us/visualstudio/install/workload-and-component-ids?view=vs-2022
         $require_comps = @('Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.VisualStudio.Product.BuildTools')
-        $vs_installs = ConvertFrom-Json "$(&$VSWHERE_EXE -version $required_vs_ver.TrimEnd('+') -format 'json' -requires $require_comps -requiresAny)"
+        $vs_installs = ConvertFrom-Json "$(&$VSWHERE_EXE -version $required_vs_ver.TrimEnd('+') -format 'json' -requires $require_comps -requiresAny -prerelease)"
         $ErrorActionPreference = $eap
 
         if ($vs_installs) {
@@ -2026,12 +2026,12 @@ if (!$setupOnly) {
                     if (($cmake_generator -eq 'Xcode') -and !$BUILD_ALL_OPTIONS.Contains('--verbose')) {
                         $forward_options += '--', '-quiet'
                     }
-                    $1k.println("cmake --build $BUILD_DIR $BUILD_ALL_OPTIONS")
 
                     if ($options.t) { $cmake_target = $options.t }
                     if ($cmake_target) {
                         $cmake_targets = $cmake_target.Split(',') | Sort-Object | Get-Unique
                         foreach ($target in $cmake_targets) {
+                            $1k.println("cmake --build $BUILD_DIR $BUILD_ALL_OPTIONS --target $target")
                             cmake --build $BUILD_DIR $BUILD_ALL_OPTIONS --target $target $forward_options | Out-Host
                             if (!$?) {
                                 Set-Location $stored_cwd
@@ -2040,6 +2040,7 @@ if (!$setupOnly) {
                         }
                     }
                     else {
+                        $1k.println("cmake --build $BUILD_DIR $BUILD_ALL_OPTIONS")
                         cmake --build $BUILD_DIR $BUILD_ALL_OPTIONS $forward_options | Out-Host
                         if (!$?) {
                             Set-Location $stored_cwd
