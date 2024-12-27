@@ -1865,7 +1865,7 @@ def generate_one(cfg, section, target, outdir, out_file):
 
     print('Using userconfig \n ', config.items('DEFAULT'))
 
-    clang_lib_path = os.path.join(config.get('DEFAULT', 'cxxgeneratordir'), 'libclang')
+    clang_lib_path = os.path.join(config.get('DEFAULT', 'cxxgeneratordir'), 'clang/prebuilt')
     cindex.Config.set_library_path(clang_lib_path)
 
     if (0 == len(config.sections())):

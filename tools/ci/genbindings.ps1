@@ -25,10 +25,11 @@ if (($stage -band 1)) {
 
     ## download win64 libclang.dll
     $lib_name = @('libclang.dll', 'libclang.so', 'libclang.dylib')[$HOST_OS]
-    $lib_path = Join-Path $AX_ROOT "tools/bindings-generator/libclang/$lib_name"
+    $lib_path = Join-Path $AX_ROOT "tools/bindings-generator/clang/prebuilt/$lib_name"
     if (!(Test-Path $lib_path -PathType Leaf)) {
         setup_7z
-        $llvm_ver = $mirror_conf.versions.'llvm'
+        $llvm_ver_pred = $manifest['llvm'].Split('~')
+        $llvm_ver = $llvm_ver_pred[$llvm_ver_pred.Count -ge 1].TrimLast('+')
         $llvm_pkg = "llvm-$llvm_ver.7z"
 
         $prefix = Join-Path $AX_ROOT "cache/devtools"
@@ -38,6 +39,8 @@ if (($stage -band 1)) {
         $1k.mkdirs($prefix)
         download_and_expand -url $llvm_url -out $llvm_out -dest $prefix
         $suffix = @('win32/x64/libclang.dll', 'linux/libclang.so', 'mac/libclang.dylib')[$HOST_OS]
+        $lib_dir = Split-Path $lib_path -Parent
+        $1k.mkdirs($lib_dir)
         Copy-Item "$prefix/llvm-$llvm_ver/lib/$suffix" -Destination $lib_path
     }
 
