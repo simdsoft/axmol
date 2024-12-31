@@ -234,7 +234,7 @@
 
 ## webp
 - [![Upstream](https://img.shields.io/github/v/tag/webmproject/libwebp?label=Upstream)](https://github.com/webmproject/libwebp)
-- Version: 1.4.0
+- Version: 1.5.0
 - License: Google Inc
 
 ## xsxml
