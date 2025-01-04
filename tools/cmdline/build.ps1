@@ -199,7 +199,11 @@ if ($forceConfig) {
 . $1k_script @1k_args @forward_args @unhandled_args
 
 if (!$configOnly) {
-    $1k.pause('Build done')
+    if ($?) {
+        $1k.pause('Build success')
+    } else {
+        throw "Build fail, ret=$LASTEXITCODE"
+    }
 }
 else {
     $1k.pause('Generate done')

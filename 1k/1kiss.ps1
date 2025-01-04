@@ -658,7 +658,7 @@ function find_prog($name, $path = $null, $mode = 'ONLY', $cmd = $null, $params =
             $verStr = $(. $cmd @params 2>$null) | Select-Object -First 1
             if ($LASTEXITCODE) {
                 Write-Warning "1kiss: Get version of $cmd fail"
-                $LASTEXITCODE = 0
+                $Global:LASTEXITCODE = 0
             }
             if (!$verStr -or $verStr.Contains('--version')) {
                 $verInfo = $cmd_info.Version
