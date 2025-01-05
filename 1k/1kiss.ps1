@@ -65,6 +65,8 @@ param(
 
 $myRoot = $PSScriptRoot
 
+$ErrorActionPreference = 'Stop'
+
 $HOST_WIN = 0 # targets: win,uwp,android
 $HOST_LINUX = 1 # targets: linux,android
 $HOST_MAC = 2 # targets: android,ios,osx(macos),tvos,watchos
@@ -320,7 +322,7 @@ if ($options.xb.GetType() -eq [string]) {
     $options.xb = $options.xb.Split(' ')
 }
 
-$pwsh_ver = $PSVersionTable.PSVersion.ToString()
+[VersionEx]$pwsh_ver = [Regex]::Match($PSVersionTable.PSVersion.ToString(), '(\d+\.)+(\*|\d+)').Value
 if ([VersionEx]$pwsh_ver -lt [VersionEx]"7.0") {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
