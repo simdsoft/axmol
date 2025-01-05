@@ -741,7 +741,7 @@ function download_and_expand($url, $out, $dest) {
             tar xf "$out" -C $dest | Out-Host
         }
         elseif ($out.EndsWith('.7z') -or $out.EndsWith('.exe')) {
-            7z x "$out" "-o$dest" -bsp1 -snld -y | Out-Host
+            7z x "$out" "-o$dest" -bsp1 -y | Out-Host
         }
         elseif ($out.EndsWith('.sh')) {
             chmod 'u+x' "$out" | Out-Host
