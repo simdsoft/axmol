@@ -11,7 +11,7 @@ on:
          # Input has to be provided for the workflow to run
          required: false
 env:
-  pr_id: ${{ github.event.inputs }}
+  pr_id: ${{ github.event.inputs.pr_id }}
 
 jobs:
   win32:
