@@ -1,7 +1,20 @@
 name: build
 
 on:
-  workflow_dispatch:
+  push:
+    branches: dev
+    paths-ignore:
+      - '**.md'
+      - '**/*.md.in'
+      - 'docs/**'
+      - '.github/workflows/publish.yml'
+      - 'tools/ci/make-pkg.ps1'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - '**.md'
+      - '**/*.md.in'
+      - 'docs/**'
 
 env:
   __1K_CXXSTD: '23'
