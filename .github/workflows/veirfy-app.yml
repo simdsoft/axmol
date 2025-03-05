@@ -11,7 +11,7 @@ on:
          # Input has to be provided for the workflow to run
          required: false
 env:
-  pr_id: ${{ inputs.pr_id }}
+  pr_id: 1
 
 jobs:
   win32:
