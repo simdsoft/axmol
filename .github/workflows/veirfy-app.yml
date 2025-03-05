@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       pr_id:
-         # actions run ID
-         description: 'Please input release version, example: 2426'
-         # Default value if no value is explicitly provided
-         default: ''
-         # Input has to be provided for the workflow to run
-         required: false
+        # actions run ID
+        description: 'Please input release version, example: 2426'
+        # Default value if no value is explicitly provided
+        default: ''
+        # Input has to be provided for the workflow to run
+        required: false
 env:
-  __CXXSTD: "23"
+  pr_id: "1"
 
 jobs:
   win32:
