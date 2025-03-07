@@ -1,6 +1,6 @@
 ## axmol-2.4.0 Feb.23 2025
 
-### Bug fixes
+### Bug fixes test
 
 - Fix build wasm fail with `-O0` by @halx99
 - Fix #2370 module 'bitop' not found by @halx99
