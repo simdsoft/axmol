@@ -25,6 +25,8 @@ echo > /dev/null <<"out-null"
 $myRoot = $PSScriptRoot
 $AX_ROOT = $myRoot
 
+throw 'abort'
+
 $Global:is_axmol_engine = Test-Path $(Join-Path $AX_ROOT 'core/axmol.cpp')
 
 function println($message) { Write-Host "axmol: $message" }
