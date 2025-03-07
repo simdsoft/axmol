@@ -22,11 +22,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        fetch-depth: '0'
+        ref: 'pull/${{ inputs.pr_id }}/head'
+        # fetch-depth: '0'
     - name: Build
       shell: pwsh
       run: |
-        if ($env:pr_id) { git pull origin pull/$env:pr_id/head --rebase ; echo "commits=$(git rev-list --count HEAD)" }
+        # if ($env:pr_id) { git pull origin pull/$env:pr_id/head --rebase ; echo "commits=$(git rev-list --count HEAD)" }
+        echo "commits=$(git rev-list --count HEAD)"
         ./setup.ps1
         axmol new HelloCpp
         axmol -d HelloCpp
