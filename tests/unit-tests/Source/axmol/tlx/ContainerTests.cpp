@@ -25,9 +25,9 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 
-#    define __TRY        if (true)
-#    define __CATCH      else
-#    define __FINALLY    if (true)
+#    define __TRY     if (true)
+#    define __CATCH   else
+#    define __FINALLY if (true)
 #    define __ENDTRY
 
 #else  // POSIX / Unix-like
@@ -43,32 +43,36 @@ void __doctest_signal_handler(int sig)
     ::siglongjmp(__doctest_jumpbuf, 1);  // jump back to safe point
 }
 
-#    define __TRY(sig_num)                               \
+#    define __TRY                                        \
         do                                               \
         {                                                \
             struct sigaction sa{};                       \
             sa.sa_handler = __doctest_signal_handler;    \
             sigemptyset(&sa.sa_mask);                    \
             sa.sa_flags = 0;                             \
-            for (int i = 1; i < NSIG; ++i) {               \
-                if (i == SIGKILL || i == SIGSTOP) continue; \
+            for (int i = 1; i < NSIG; ++i)               \
+            {                                            \
+                if (i == SIGKILL || i == SIGSTOP)        \
+                    continue;                            \
                 sigaction(i, &sa, nullptr);              \
-            } \
+            }                                            \
             int __ret = sigsetjmp(__doctest_jumpbuf, 1); \
             if (__ret == 0)
 
 #    define __CATCH else
 
-#    define __FINALLY                                   \
-        {                                               \
-            struct sigaction sa_default{};              \
-            sa_default.sa_handler = SIG_DFL;            \
-            sigemptyset(&sa_default.sa_mask);           \
-            sa_default.sa_flags = 0;                    \
-            for (int i = 1; i < NSIG; ++i) {              \
-                if (i == SIGKILL || i == SIGSTOP) continue; \
+#    define __FINALLY                               \
+        {                                           \
+            struct sigaction sa_default{};          \
+            sa_default.sa_handler = SIG_DFL;        \
+            sigemptyset(&sa_default.sa_mask);       \
+            sa_default.sa_flags = 0;                \
+            for (int i = 1; i < NSIG; ++i)          \
+            {                                       \
+                if (i == SIGKILL || i == SIGSTOP)   \
+                    continue;                       \
                 sigaction(i, &sa_default, nullptr); \
-            } \
+            }                                       \
         }
 
 #    define __ENDTRY \
@@ -269,19 +273,19 @@ TEST_SUITE("tlx/Containers")
 
             tlx::pod_vector<TrivalCtor1> arr5;
             arr5.resize(2);
-    
+
 #ifndef __APPLE__
             CHECK((arr5[0].value != 0 && arr5[1].value != 0));
 #endif
             // we can safe access initialized member without exception catch
             arr5.resize(4, TrivalCtor1{39});
             CHECK((arr5[2].value == 39 && arr5[3].value == 39));
-    
+
             arr5.resize(128, TrivalCtor1{66});
             CHECK((arr5[2].value == 39 && arr5[3].value == 39));
-    
+
             CHECK((arr5[10].value == 66 && arr5[22].value == 66));
-            
+
             AXLOGI("Access uninitialzed object membmer done (non optimized build or non-Apple platforms)");
         }
         __CATCH
