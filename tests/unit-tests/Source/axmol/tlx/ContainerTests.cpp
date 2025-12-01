@@ -68,7 +68,7 @@ void __doctest_signal_handler(int sig)
             sa_default.sa_flags = 0;                    \
             for (int i = 1; i < NSIG; ++i) {              \
                 if (i == SIGKILL || i == SIGSTOP) continue; \
-                sigaction(__sig_num, &sa_default, nullptr); \
+                sigaction(i, &sa_default, nullptr); \
             } \
         }
 
