@@ -39,14 +39,13 @@ static thread_local sigjmp_buf __doctest_jumpbuf;
 
 void __doctest_signal_handler(int sig)
 {
-    if (sig != SIGKILL)
-        ::siglongjmp(__doctest_jumpbuf, 1);  // jump back to safe point
+    AXLOGI("Caught signal: {}", sig);
+    ::siglongjmp(__doctest_jumpbuf, 1);  // jump back to safe point
 }
 
 #    define __TRY(sig_num)                               \
         do                                               \
         {                                                \
-            const auto __sig_num = sig_num;              \
             struct sigaction sa{};                       \
             sa.sa_handler = __doctest_signal_handler;    \
             sigemptyset(&sa.sa_mask);                    \
