@@ -46,8 +46,8 @@ class Node;
 /** @class EventListener
  *  @brief The base class of event listener.
  *  If you need custom listener which with different callback, you need to inherit this class.
- *  For instance, you could refer to EventListenerAcceleration, EventListenerKeyboard, EventListenerTouchOneByOne,
- * EventListenerCustom.
+ *  For instance, you could refer to AccelerationEventListener, KeyboardEventListener, PointerEventListener,
+ * CustomEventListener.
  */
 class AX_DLL EventListener : public Object
 {
@@ -56,8 +56,7 @@ public:
     enum class Type
     {
         UNKNOWN,
-        TOUCH_ONE_BY_ONE,
-        TOUCH_ALL_AT_ONCE,
+        POINTER,
         KEYBOARD,
         MOUSE,
         ACCELERATION,

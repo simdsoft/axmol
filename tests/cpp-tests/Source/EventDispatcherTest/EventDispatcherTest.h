@@ -1,5 +1,6 @@
 /****************************************************************************
  Copyright (c) 2017-2018 Xiamen Yaji Software Co., Ltd.
+ Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
 
  https://axmol.dev/
 
@@ -81,8 +82,8 @@ public:
     virtual std::string subtitle() const override;
 
 private:
-    ax::EventListenerCustom* _listener;
-    ax::EventListenerCustom* _listener2;
+    ax::CustomEventListener* _listener;
+    ax::CustomEventListener* _listener2;
 };
 
 class LabelKeyboardEventTest : public EventDispatcherTestDemo
@@ -138,8 +139,8 @@ public:
 
     virtual void update(float dt) override;
 
-    void onEvent1(ax::EventCustom* event);
-    void onEvent2(ax::EventCustom* event);
+    void onEvent1(ax::CustomEvent* event);
+    void onEvent2(ax::CustomEvent* event);
 
     virtual std::string title() const override;
     virtual std::string subtitle() const override;
@@ -147,7 +148,7 @@ public:
 protected:
     int _count1, _count2, _count3, _count4;
     ax::Label *_label1, *_label2, *_label3, *_label4;
-    ax::EventListenerCustom *_event1, *_event2, *_event3, *_event4;
+    ax::CustomEventListener *_event1, *_event2, *_event3, *_event4;
 };
 
 class GlobalZTouchTest : public EventDispatcherTestDemo
@@ -236,7 +237,7 @@ public:
     virtual std::string subtitle() const override;
 
 private:
-    ax::EventListenerCustom* _customlistener;
+    ax::CustomEventListener* _customlistener;
     bool _bugFixed;
 };
 
@@ -295,7 +296,7 @@ public:
     virtual std::string subtitle() const override;
 
 private:
-    ax::EventListenerCustom* _listener;
+    ax::CustomEventListener* _listener;
 };
 
 class Issue9898 : public EventDispatcherTestDemo
@@ -308,7 +309,7 @@ public:
     virtual std::string subtitle() const override;
 
 private:
-    ax::EventListenerCustom* _listener;
+    ax::CustomEventListener* _listener;
 };
 
 #endif /* defined(__samples__NewEventDispatcherTest__) */

@@ -25,18 +25,18 @@
  ****************************************************************************/
 #include "axmol/base/EventDispatcher.h"
 #include <algorithm>
+#include <bit>
 
-#include "axmol/base/EventCustom.h"
-#include "axmol/base/EventListenerTouch.h"
-#include "axmol/base/EventListenerAcceleration.h"
-#include "axmol/base/EventListenerMouse.h"
-#include "axmol/base/EventListenerKeyboard.h"
-#include "axmol/base/EventListenerCustom.h"
-#include "axmol/base/EventListenerFocus.h"
+#include "axmol/base/CustomEvent.h"
+#include "axmol/base/PointerEventListener.h"
+#include "axmol/base/AccelerationEventListener.h"
+#include "axmol/base/KeyboardEventListener.h"
+#include "axmol/base/CustomEventListener.h"
+#include "axmol/base/FocusEventListener.h"
 #if (AX_TARGET_PLATFORM == AX_PLATFORM_ANDROID || AX_TARGET_PLATFORM == AX_PLATFORM_IOS || \
      AX_TARGET_PLATFORM == AX_PLATFORM_MAC || AX_TARGET_PLATFORM == AX_PLATFORM_LINUX ||   \
      AX_TARGET_PLATFORM == AX_PLATFORM_WIN32)
-#    include "axmol/base/EventListenerController.h"
+#    include "axmol/base/ControllerEventListener.h"
 #endif
 #include "axmol/scene/Scene.h"
 #include "axmol/base/Director.h"
@@ -65,31 +65,73 @@ private:
 namespace ax
 {
 
+namespace
+{
+constexpr uint64_t CAPTURE_BUTTON_BITS  = 8;
+constexpr uint64_t CAPTURE_BUTTON_MASK  = (1ull << CAPTURE_BUTTON_BITS) - 1ull;
+constexpr uint64_t CAPTURE_POINTER_MASK = ~CAPTURE_BUTTON_MASK;
+
+static uint64_t makeCapturedButtonBits(int32_t button)
+{
+    return static_cast<uint64_t>(static_cast<uint32_t>(button + 1)) & CAPTURE_BUTTON_MASK;
+}
+
+static uint64_t makeCapturedPointerPrefix(intptr_t pointerId)
+{
+    return (static_cast<uint64_t>(pointerId) << CAPTURE_BUTTON_BITS) & CAPTURE_POINTER_MASK;
+}
+
+static uint64_t makePointerCaptureId(intptr_t pointerId, int32_t button)
+{
+    return makeCapturedPointerPrefix(pointerId) | makeCapturedButtonBits(button);
+}
+
+static bool isPointerCaptureIdForPointer(uint64_t key, intptr_t pointerId)
+{
+    return (key & CAPTURE_POINTER_MASK) == makeCapturedPointerPrefix(pointerId);
+}
+
+static PointerEvent::CaptureBits makePointerCaptureBits(PointerEvent* event)
+{
+    // ensure non major touch pointer also fill capture bits when onPointerDown
+    auto bits = static_cast<PointerEvent::CaptureBits>(PointerEvent::CAPTURED);
+    if (event->getPointerType() == PointerType::Touch)
+    {
+        if (event->isPrimary())
+            bits |= PointerEvent::PRIMARY_CAPTURED;
+    }
+    else
+    {
+        auto button = event->getButton();
+        if (button >= 0 && button < 31)
+            bits |= 1u << button;
+    }
+    return bits;
+}
+}  // namespace
+
 static EventListener::ListenerID __getListenerID(Event* event)
 {
     EventListener::ListenerID ret;
     switch (event->getType())
     {
     case Event::Type::ACCELERATION:
-        ret = EventListenerAcceleration::LISTENER_ID;
+        ret = AccelerationEventListener::LISTENER_ID;
         break;
     case Event::Type::CUSTOM:
     {
-        auto customEvent = static_cast<EventCustom*>(event);
+        auto customEvent = static_cast<CustomEvent*>(event);
         ret              = customEvent->getEventName();
     }
     break;
     case Event::Type::KEYBOARD:
-        ret = EventListenerKeyboard::LISTENER_ID;
-        break;
-    case Event::Type::MOUSE:
-        ret = EventListenerMouse::LISTENER_ID;
+        ret = KeyboardEventListener::LISTENER_ID;
         break;
     case Event::Type::FOCUS:
-        ret = EventListenerFocus::LISTENER_ID;
+        ret = FocusEventListener::LISTENER_ID;
         break;
-    case Event::Type::TOUCH:
-        // Touch listener is very special, it contains two kinds of listeners, EventListenerTouchOneByOne and
+    case Event::Type::POINTER:
+        // Touch listener is very special, it contains two kinds of listeners, PointerEventListener and
         // EventListenerTouchAllAtOnce. return UNKNOWN instead.
         AXASSERT(false, "Don't call this method if the event is for touch.");
         break;
@@ -97,7 +139,7 @@ static EventListener::ListenerID __getListenerID(Event* event)
      AX_TARGET_PLATFORM == AX_PLATFORM_MAC || AX_TARGET_PLATFORM == AX_PLATFORM_LINUX ||   \
      AX_TARGET_PLATFORM == AX_PLATFORM_WIN32)
     case Event::Type::GAME_CONTROLLER:
-        ret = EventListenerController::LISTENER_ID;
+        ret = ControllerEventListener::LISTENER_ID;
         break;
 #endif
     default:
@@ -415,6 +457,8 @@ void EventDispatcher::resumeEventListenersForTarget(Node* target, bool recursive
 
 void EventDispatcher::removeEventListenersForTarget(Node* target, bool recursive /* = false */)
 {
+    removeCapturedPointerListenersForTarget(target);
+
     // Ensure the node is removed from these immediately also.
     // Don't want any dangling pointers or the possibility of dealing with deleted objects..
     _nodePriorityMap.erase(target);
@@ -651,11 +695,11 @@ void EventDispatcher::addEventListenerWithFixedPriority(EventListener* listener,
     addEventListener(listener);
 }
 
-EventListenerCustom* EventDispatcher::addCustomEventListener(std::string_view eventName,
-                                                             const std::function<void(EventCustom*)>& callback,
+CustomEventListener* EventDispatcher::addCustomEventListener(std::string_view eventName,
+                                                             const std::function<void(CustomEvent*)>& callback,
                                                              int priority)
 {
-    EventListenerCustom* listener = EventListenerCustom::create(eventName, callback);
+    CustomEventListener* listener = CustomEventListener::create(eventName, callback);
     addEventListenerWithFixedPriority(listener, priority);
     return listener;
 }
@@ -681,6 +725,7 @@ void EventDispatcher::removeEventListener(EventListener* listener)
             if (l == listener)
             {
                 AX_SAFE_RETAIN(l);
+                removeCapturedPointerListener(l);
                 l->setRegistered(false);
                 if (l->getAssociatedNode() != nullptr)
                 {
@@ -863,106 +908,6 @@ void EventDispatcher::dispatchEventToListeners(EventListenerVector* listeners,
     }
 }
 
-void EventDispatcher::dispatchTouchEventToListeners(EventListenerVector* listeners,
-                                                    const std::function<bool(EventListener*)>& onEvent)
-{
-    bool shouldStopPropagation       = false;
-    auto fixedPriorityListeners      = listeners->getFixedPriorityListeners();
-    auto sceneGraphPriorityListeners = listeners->getSceneGraphPriorityListeners();
-
-    ssize_t i = 0;
-    // priority < 0
-    if (fixedPriorityListeners)
-    {
-        AXASSERT(listeners->getGt0Index() <= static_cast<ssize_t>(fixedPriorityListeners->size()),
-                 "Out of range exception!");
-
-        if (!fixedPriorityListeners->empty())
-        {
-            for (; i < listeners->getGt0Index(); ++i)
-            {
-                auto l = fixedPriorityListeners->at(i);
-                if (l->isEnabled() && !l->isPaused() && l->isRegistered() && onEvent(l))
-                {
-                    shouldStopPropagation = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    auto scene = Director::getInstance()->getRunningScene();
-    if (scene && sceneGraphPriorityListeners)
-    {
-        if (!shouldStopPropagation)
-        {
-            // priority == 0, scene graph priority
-
-            // first, get all enabled, unPaused and registered listeners
-            std::vector<EventListener*> sceneListeners;
-            for (auto&& l : *sceneGraphPriorityListeners)
-            {
-                if (l->isEnabled() && !l->isPaused() && l->isRegistered())
-                {
-                    sceneListeners.emplace_back(l);
-                }
-            }
-            // second, for all camera call all listeners
-            // get a copy of cameras, prevent it's been modified in listener callback
-            // if camera's depth is greater, process it earlier
-            auto cameras = scene->getCameras();
-            for (auto rit = cameras.rbegin(), ritRend = cameras.rend(); rit != ritRend; ++rit)
-            {
-                Camera* camera = *rit;
-                if (camera->isVisible() == false)
-                {
-                    continue;
-                }
-
-                Camera::_visitingCamera = camera;
-                auto cameraFlag         = (unsigned short)camera->getCameraFlag();
-                for (auto&& l : sceneListeners)
-                {
-                    if (nullptr == l->getAssociatedNode() ||
-                        0 == (l->getAssociatedNode()->getCameraMask() & cameraFlag))
-                    {
-                        continue;
-                    }
-                    if (onEvent(l))
-                    {
-                        shouldStopPropagation = true;
-                        break;
-                    }
-                }
-                if (shouldStopPropagation)
-                {
-                    break;
-                }
-            }
-            Camera::_visitingCamera = nullptr;
-        }
-    }
-
-    if (fixedPriorityListeners)
-    {
-        if (!shouldStopPropagation)
-        {
-            // priority > 0
-            ssize_t size = fixedPriorityListeners->size();
-            for (; i < size; ++i)
-            {
-                auto l = fixedPriorityListeners->at(i);
-
-                if (l->isEnabled() && !l->isPaused() && l->isRegistered() && onEvent(l))
-                {
-                    // shouldStopPropagation = true;
-                    break;
-                }
-            }
-        }
-    }
-}
-
 void EventDispatcher::dispatchEvent(Event* event, bool forced)
 {
     if (!_isEnabled && !forced)
@@ -972,14 +917,10 @@ void EventDispatcher::dispatchEvent(Event* event, bool forced)
 
     DispatchGuard guard(_inDispatch);
 
-    if (event->getType() == Event::Type::TOUCH)
+    if (event->getType() == Event::Type::POINTER)
     {
-        dispatchTouchEvent(static_cast<EventTouch*>(event));
-        return;
-    }
-    else if (event->getType() == Event::Type::MOUSE)
-    {
-        dispatchMouseEvent(static_cast<EventMouse*>(event));
+        dispatchPointerEvent(static_cast<PointerEvent*>(event));
+        updateListeners(event);
         return;
     }
 
@@ -987,11 +928,6 @@ void EventDispatcher::dispatchEvent(Event* event, bool forced)
 
     sortEventListeners(listenerID);
 
-    auto pfnDispatchEventToListeners = &EventDispatcher::dispatchEventToListeners;
-    if (event->getType() == Event::Type::MOUSE)
-    {
-        pfnDispatchEventToListeners = &EventDispatcher::dispatchTouchEventToListeners;
-    }
     auto iter = _listenerMap.find(listenerID);
     if (iter != _listenerMap.end())
     {
@@ -1003,7 +939,7 @@ void EventDispatcher::dispatchEvent(Event* event, bool forced)
             return event->isStopped();
         };
 
-        (this->*pfnDispatchEventToListeners)(listeners, onEvent);
+        dispatchEventToListeners(listeners, onEvent);
     }
 
     updateListeners(event);
@@ -1011,7 +947,7 @@ void EventDispatcher::dispatchEvent(Event* event, bool forced)
 
 void EventDispatcher::dispatchCustomEvent(std::string_view eventName, void* optionalUserData, bool forced)
 {
-    EventCustom ev(eventName);
+    CustomEvent ev(eventName);
     ev.setUserData(optionalUserData);
     dispatchEvent(&ev, forced);
 }
@@ -1021,300 +957,346 @@ bool EventDispatcher::hasEventListener(std::string_view listenerID) const
     return getListeners(listenerID) != nullptr;
 }
 
-void EventDispatcher::dispatchTouchEvent(EventTouch* event)
+bool EventDispatcher::dispatchCapturedPointerEvent(PointerEvent* event)
 {
-    sortEventListeners(EventListenerTouchOneByOne::LISTENER_ID);
-    sortEventListeners(EventListenerTouchAllAtOnce::LISTENER_ID);
+    auto dispatchCapturedEntry = [event](const PointerCaptureEntry& entry) {
+        auto* listener = entry.listener;
+        if (!listener || !listener->_isRegistered)
+            return false;
 
-    auto oneByOneListeners  = getListeners(EventListenerTouchOneByOne::LISTENER_ID);
-    auto allAtOnceListeners = getListeners(EventListenerTouchAllAtOnce::LISTENER_ID);
+        RefPtr<PointerEventListener> guard(listener);
 
-    // If there aren't any touch listeners, return directly.
-    if (nullptr == oneByOneListeners && nullptr == allAtOnceListeners)
-        return;
+        event->setCurrentTarget(listener->getAssociatedNode());
+        event->setCamera(entry.camera);
+        event->setCaptureBits(entry.captureBits);
 
-    struct TouchContext
-    {
-        EventTouch* event;
-        Touch* touch;
-        std::vector<Touch*>* pTouches;
-        std::vector<Touch*> mutableTouches;
-        std::vector<Touch*>::iterator touchesIter;
-        bool isNeedsMutableSet;
-        bool isSwallowed;
+        switch (event->getPhase())
+        {
+        case InputPhase::PointerMove:
+            if (listener->onPointerMove)
+                listener->onPointerMove(event);
+            break;
+
+        case InputPhase::PointerUp:
+            if (listener->onPointerUp)
+                listener->onPointerUp(event);
+            break;
+
+        case InputPhase::PointerCancel:
+            if (listener->onPointerCancel)
+                listener->onPointerCancel(event);
+            break;
+
+        default:
+            break;
+        }
+
+        return true;
     };
 
-    TouchContext touchContext;
-    touchContext.event             = event;
-    touchContext.isNeedsMutableSet = (oneByOneListeners && allAtOnceListeners);
-
-    const std::vector<Touch*>& originalTouches = event->getTouches();
-    if (!touchContext.isNeedsMutableSet)
-        touchContext.pTouches = const_cast<std::vector<Touch*>*>(&originalTouches);
-    else
-    {
-        touchContext.mutableTouches = originalTouches;
-        touchContext.pTouches       = &touchContext.mutableTouches;
-    }
-
-    //
-    // process the target handlers 1st
-    //
-    if (oneByOneListeners)
-    {
-        touchContext.touchesIter = touchContext.pTouches->begin();
-
-        for (auto&& touch : originalTouches)
+    auto mergeCapturedEntry = [](tlx::inlined_vector<PointerCaptureEntry, 8>& entries,
+                                 const PointerCaptureEntry& entry) {
+        auto found = std::find_if(entries.begin(), entries.end(),
+                                  [&entry](const auto& item) { return item.listener == entry.listener; });
+        if (found != entries.end())
         {
-            touchContext.isSwallowed = false;
-            touchContext.touch       = touch;
-
-            auto onTouchEvent = [this, &touchContext](EventListener* l) -> bool {  // Return true to break
-                EventListenerTouchOneByOne* listener = static_cast<EventListenerTouchOneByOne*>(l);
-
-                // Skip if the listener was removed.
-                if (!listener->_isRegistered)
-                    return false;
-
-                const auto event = touchContext.event;
-                auto touch       = touchContext.touch;
-                event->setCurrentTarget(listener->_node);
-
-                bool isClaimed = false;
-                std::vector<Touch*>::iterator removedIter;
-
-                EventTouch::EventCode eventCode = event->getEventCode();
-
-                if (eventCode == EventTouch::EventCode::BEGAN)
-                {
-                    if (listener->onTouchBegan)
-                    {
-                        isClaimed = listener->onTouchBegan(touch, event);
-                        if (isClaimed && listener->_isRegistered)
-                        {
-                            listener->_claimedTouches.emplace_back(touch);
-                        }
-                    }
-                }
-                else if (!listener->_claimedTouches.empty() &&
-                         ((removedIter = std::find(listener->_claimedTouches.begin(), listener->_claimedTouches.end(),
-                                                   touch)) != listener->_claimedTouches.end()))
-                {
-                    isClaimed = true;
-
-                    switch (eventCode)
-                    {
-                    case EventTouch::EventCode::MOVED:
-                        if (listener->onTouchMoved)
-                        {
-                            listener->onTouchMoved(touch, event);
-                        }
-                        break;
-                    case EventTouch::EventCode::ENDED:
-                        if (listener->onTouchEnded)
-                        {
-                            listener->onTouchEnded(touch, event);
-                        }
-                        if (listener->_isRegistered)
-                        {
-                            listener->_claimedTouches.erase(removedIter);
-                        }
-                        break;
-                    case EventTouch::EventCode::CANCELLED:
-                        if (listener->onTouchCancelled)
-                        {
-                            listener->onTouchCancelled(touch, event);
-                        }
-                        if (listener->_isRegistered)
-                        {
-                            listener->_claimedTouches.erase(removedIter);
-                        }
-                        break;
-                    default:
-                        AXASSERT(false, "The eventcode is invalid.");
-                        break;
-                    }
-                }
-
-                // If the event was stopped, return directly.
-                if (event->isStopped())
-                {
-                    updateListeners(event);
-                    return true;
-                }
-
-                AXASSERT(touch->getID() == (*touchContext.touchesIter)->getID(),
-                         "touches ID should be equal to mutableTouchesIter's ID.");
-
-                if (isClaimed && listener->_isRegistered && listener->_needSwallow)
-                {
-                    if (touchContext.isNeedsMutableSet)
-                    {
-                        touchContext.touchesIter = touchContext.mutableTouches.erase(touchContext.touchesIter);
-                        touchContext.isSwallowed = true;
-                    }
-                    return true;
-                }
-
-                return false;
-            };
-
-            //
-            dispatchTouchEventToListeners(oneByOneListeners, onTouchEvent);
-            if (event->isStopped())
-            {
-                return;
-            }
-
-            if (!touchContext.isSwallowed)
-                ++touchContext.touchesIter;
+            found->captureBits = static_cast<PointerEvent::CaptureBits>(found->captureBits | entry.captureBits);
+            if (!found->camera)
+                found->camera = entry.camera;
         }
-    }
+        else
+        {
+            entries.emplace_back(entry);
+        }
+    };
 
-    //
-    // process standard handlers 2nd
-    //
-    if (allAtOnceListeners && !touchContext.pTouches->empty())
+    const auto pointerId = event->getPointerId();
+    tlx::inlined_vector<PointerCaptureEntry, 8> entries;
+
+    switch (event->getPhase())
     {
-        auto onTouchesEvent = [this, &touchContext](EventListener* l) -> bool {
-            EventListenerTouchAllAtOnce* listener = static_cast<EventListenerTouchAllAtOnce*>(l);
-            // Skip if the listener was removed.
-            if (!listener->_isRegistered)
+    case InputPhase::PointerMove:
+    {
+        if (event->getPointerType() == PointerType::Touch)
+        {
+            auto iter = _capturedPointerListeners.find(makePointerCaptureId(pointerId, InputButton::None));
+            if (iter == _capturedPointerListeners.end())
                 return false;
 
-            auto& remainingTouches = *touchContext.pTouches;
-            const auto event       = touchContext.event;
-
-            event->setCurrentTarget(listener->_node);
-
-            switch (event->getEventCode())
+            if (!dispatchCapturedEntry(iter->second))
             {
-            case EventTouch::EventCode::BEGAN:
-                if (listener->onTouchesBegan)
-                {
-                    listener->onTouchesBegan(remainingTouches, event);
-                }
-                break;
-            case EventTouch::EventCode::MOVED:
-                if (listener->onTouchesMoved)
-                {
-                    listener->onTouchesMoved(remainingTouches, event);
-                }
-                break;
-            case EventTouch::EventCode::ENDED:
-                if (listener->onTouchesEnded)
-                {
-                    listener->onTouchesEnded(remainingTouches, event);
-                }
-                break;
-            case EventTouch::EventCode::CANCELLED:
-                if (listener->onTouchesCancelled)
-                {
-                    listener->onTouchesCancelled(remainingTouches, event);
-                }
-                break;
-            default:
-                AXASSERT(false, "The eventcode is invalid.");
-                break;
+                _capturedPointerListeners.erase(iter);
+                return false;
             }
 
-            // If the event was stopped, return directly.
-            if (event->isStopped())
-            {
-                updateListeners(event);
-                return true;
-            }
+            return true;
+        }
 
+        auto buttons = event->getPressedButtons();
+        if (buttons == 0)
             return false;
-        };
 
-        dispatchTouchEventToListeners(allAtOnceListeners, onTouchesEvent);
-        if (event->isStopped())
+        while (buttons != 0)
         {
-            return;
+            const auto button = static_cast<int32_t>(std::countr_zero(buttons));
+            auto iter         = _capturedPointerListeners.find(makePointerCaptureId(pointerId, button));
+
+            if (iter != _capturedPointerListeners.end())
+            {
+                auto& entry = iter->second;
+                if (!entry.listener || !entry.listener->_isRegistered)
+                {
+                    _capturedPointerListeners.erase(iter);
+                }
+                else
+                {
+                    mergeCapturedEntry(entries, entry);
+                }
+            }
+
+            buttons &= buttons - 1;
         }
+
+        if (entries.empty())
+            return false;
+
+        for (const auto& entry : entries)
+        {
+            dispatchCapturedEntry(entry);
+            if (event->isStopped())
+                break;
+        }
+
+        return true;
     }
 
-    updateListeners(event);
+    case InputPhase::PointerUp:
+    {
+        auto iter = _capturedPointerListeners.find(makePointerCaptureId(pointerId, event->getButton()));
+        if (iter == _capturedPointerListeners.end())
+            return false;
+
+        auto entry = iter->second;
+        _capturedPointerListeners.erase(iter);
+
+        return dispatchCapturedEntry(entry);
+    }
+
+    case InputPhase::PointerCancel:
+    {
+        for (auto iter = _capturedPointerListeners.begin(); iter != _capturedPointerListeners.end();)
+        {
+            if (isPointerCaptureIdForPointer(iter->first, pointerId))
+            {
+                auto& entry = iter->second;
+                if (entry.listener && entry.listener->_isRegistered)
+                {
+                    mergeCapturedEntry(entries, entry);
+                }
+
+                iter = _capturedPointerListeners.erase(iter);
+                continue;
+            }
+
+            ++iter;
+        }
+
+        if (entries.empty())
+            return true;
+
+        for (const auto& entry : entries)
+            dispatchCapturedEntry(entry);
+
+        return true;
+    }
+
+    default:
+        return false;
+    }
 }
 
-void EventDispatcher::dispatchMouseEvent(EventMouse* event)
+void EventDispatcher::dispatchUncapturedPointerEvent(PointerEvent* event, PointerCaptureId eventCaptureId)
 {
-    sortEventListeners(EventListenerMouse::LISTENER_ID);
+    sortEventListeners(PointerEventListener::LISTENER_ID);
 
-    auto listeners = getListeners(EventListenerMouse::LISTENER_ID);
-
-    // If there aren't any mouse listeners, return directly.
-    if (nullptr == listeners)
+    auto listeners = getListeners(PointerEventListener::LISTENER_ID);
+    if (!listeners)
         return;
 
-    auto onMouseEvent = [this, event](EventListener* l) -> bool {  // Return true to break
-        EventListenerMouse* listener = static_cast<EventListenerMouse*>(l);
-
-        // Skip if the listener was removed.
-        if (!listener->_isRegistered)
+    //  Helper lambda to dispatch uncaptured event to listener
+    auto onPointerEvent = [this, event, eventCaptureId](EventListener* l) -> bool {
+        auto* listener = static_cast<PointerEventListener*>(l);
+        if (!listener || !listener->_isRegistered)
             return false;
 
-        event->setCurrentTarget(listener->_node);
+        event->setCurrentTarget(listener->getAssociatedNode());
 
         bool isClaimed = false;
 
-        switch (event->getMouseEventType())
+        switch (event->getPhase())
         {
-        case EventMouse::MouseEventType::MOUSE_UP:
-            if (listener->onMouseUp)
+        case InputPhase::PointerDown:
+            if (listener->onPointerDown)
+                isClaimed = listener->onPointerDown(event);
+
+            if (isClaimed && listener->_isRegistered)
             {
-                isClaimed = listener->onMouseUp(event);
+                const auto captureBits = makePointerCaptureBits(event);
+                auto iter              = _capturedPointerListeners.find(eventCaptureId);
+                if (iter == _capturedPointerListeners.end() || !iter->second.listener ||
+                    !iter->second.listener->_isRegistered)
+                    _capturedPointerListeners[eventCaptureId] =
+                        PointerCaptureEntry{listener, captureBits, event->getCamera()};
             }
             break;
-        case EventMouse::MouseEventType::MOUSE_DOWN:
-            if (listener->onMouseDown)
-            {
-                isClaimed = listener->onMouseDown(event);
-            }
+
+        case InputPhase::PointerMove:
+            if (listener->onPointerMove)
+                listener->onPointerMove(event);
             break;
-        case EventMouse::MouseEventType::MOUSE_MOVE:
-            if (listener->onMouseMove)
-            {
-                isClaimed = listener->onMouseMove(event);
-            }
+
+        case InputPhase::PointerScroll:
+            if (listener->onPointerScroll)
+                isClaimed = listener->onPointerScroll(event);
             break;
-        case EventMouse::MouseEventType::MOUSE_SCROLL:
-            if (listener->onMouseScroll)
-            {
-                isClaimed = listener->onMouseScroll(event);
-            }
-            break;
-        case EventMouse::MouseEventType::MOUSE_NONE:
-            break;
+
         default:
-            AXASSERT(false, "The type is invalid.");
             break;
         }
 
-        // If the event was stopped, return directly.
-        if (event->isStopped())
-        {
-            updateListeners(event);
+        if (event->isStopped() || isClaimed)
             return true;
-        }
-
-        if (isClaimed && listener->_isRegistered && listener->_needSwallow)
-        {
-            return true;
-        }
 
         return false;
     };
 
-    //
-    dispatchTouchEventToListeners(listeners, onMouseEvent);
-    if (event->isStopped())
+    /// Iterator listener to dispatch
+    bool shouldStopPropagation       = false;
+    auto fixedPriorityListeners      = listeners->getFixedPriorityListeners();
+    auto sceneGraphPriorityListeners = listeners->getSceneGraphPriorityListeners();
+
+    // Fixed-priority listeners are not camera/node based.
+    // Keep their old semantics and clear input camera context.
+    if (event)
+        event->setCamera(nullptr);
+
+    ssize_t i = 0;
+
+    // priority < 0
+    if (fixedPriorityListeners)
     {
-        return;
+        AXASSERT(listeners->getGt0Index() <= static_cast<ssize_t>(fixedPriorityListeners->size()),
+                 "Out of range exception!");
+
+        if (!fixedPriorityListeners->empty())
+        {
+            for (; i < listeners->getGt0Index(); ++i)
+            {
+                auto l = fixedPriorityListeners->at(i);
+                if (l->isEnabled() && !l->isPaused() && l->isRegistered() && onPointerEvent(l))
+                {
+                    shouldStopPropagation = true;
+                    break;
+                }
+            }
+        }
     }
 
-    updateListeners(event);
+    auto scene = Director::getInstance()->getRunningScene();
+    if (scene && sceneGraphPriorityListeners && !shouldStopPropagation)
+    {
+        // priority == 0, scene graph priority
+        //
+        // New model:
+        //   listener outer loop
+        //   camera inner loop only for hit-test
+        //
+        // This guarantees the same scene graph listener receives onPointerDown
+        // at most once for a raw PointerDown event.
+        std::vector<EventListener*> sceneListeners;
+        sceneListeners.reserve(sceneGraphPriorityListeners->size());
+
+        for (auto&& l : *sceneGraphPriorityListeners)
+        {
+            if (l->isEnabled() && !l->isPaused() && l->isRegistered())
+            {
+                l->retain();
+                sceneListeners.emplace_back(l);
+            }
+        }
+
+        scene->retain();
+        auto cameras = scene->getCameras();
+        for (auto&& camera : cameras)
+            camera->retain();
+
+        for (auto&& l : sceneListeners)
+        {
+            if (!l->isEnabled() || l->isPaused() || !l->isRegistered())
+                continue;
+
+            auto* target = l->getAssociatedNode();
+            if (!target || _nodePriorityMap.find(target) == _nodePriorityMap.end())
+                continue;
+
+            auto* pointerListener = static_cast<PointerEventListener*>(l);
+            Camera* hitCamera     = findHitCameraForListener(event, pointerListener, cameras);
+            if (!hitCamera)
+                continue;
+
+            // Camera context for input callbacks. Do not use Camera::_visitingCamera.
+            event->setCamera(hitCamera);
+
+            if (onPointerEvent(l))
+            {
+                shouldStopPropagation = true;
+                break;
+            }
+        }
+
+        if (event)
+            event->setCamera(nullptr);
+
+        for (auto&& camera : cameras)
+            camera->release();
+
+        scene->release();
+
+        for (auto&& l : sceneListeners)
+            l->release();
+    }
+
+    // priority > 0
+    if (fixedPriorityListeners && !shouldStopPropagation)
+    {
+        // Fixed-priority listeners are not camera/node based.
+        if (event)
+            event->setCamera(nullptr);
+
+        ssize_t size = fixedPriorityListeners->size();
+        for (; i < size; ++i)
+        {
+            auto l = fixedPriorityListeners->at(i);
+
+            if (l->isEnabled() && !l->isPaused() && l->isRegistered() && onPointerEvent(l))
+            {
+                // shouldStopPropagation = true;
+                break;
+            }
+        }
+    }
+}
+
+void EventDispatcher::dispatchPointerEvent(PointerEvent* event)
+{
+    // Avoid carrying stale camera context into fixed-priority listeners or non-hit paths.
+    event->setCamera(nullptr);
+
+    if (dispatchCapturedPointerEvent(event))
+        return;
+
+    const auto eventCaptureId = makePointerCaptureId(event->getPointerId(), event->getButton());
+    dispatchUncapturedPointerEvent(event, eventCaptureId);
 }
 
 void EventDispatcher::updateListeners(Event* event)
@@ -1387,10 +1369,9 @@ void EventDispatcher::updateListeners(Event* event)
         }
     };
 
-    if (event->getType() == Event::Type::TOUCH)
+    if (event->getType() == Event::Type::POINTER)
     {
-        onUpdateListeners(EventListenerTouchOneByOne::LISTENER_ID);
-        onUpdateListeners(EventListenerTouchAllAtOnce::LISTENER_ID);
+        onUpdateListeners(PointerEventListener::LISTENER_ID);
     }
     else
     {
@@ -1500,10 +1481,22 @@ void EventDispatcher::sortEventListenersOfSceneGraphPriority(std::string_view li
 
     visitTarget(rootNode, true);
 
+    auto getNodePriority = [this](const EventListener* listener) -> int {
+        if (!listener || !listener->isRegistered())
+            return 0;
+
+        auto node = listener->getAssociatedNode();
+        if (!node)
+            return 0;
+
+        auto iter = _nodePriorityMap.find(node);
+        return iter != _nodePriorityMap.end() ? iter->second : 0;
+    };
+
     // After sort: priority < 0, > 0
     std::stable_sort(sceneGraphListeners->begin(), sceneGraphListeners->end(),
-                     [this](const EventListener* l1, const EventListener* l2) {
-        return _nodePriorityMap[l1->getAssociatedNode()] > _nodePriorityMap[l2->getAssociatedNode()];
+                     [&getNodePriority](const EventListener* l1, const EventListener* l2) {
+        return getNodePriority(l1) > getNodePriority(l2);
     });
 
 #if DUMP_LISTENER_ITEM_PRIORITY_INFO
@@ -1580,6 +1573,7 @@ void EventDispatcher::removeEventListenersForListenerID(std::string_view listene
             for (auto iter = listenerVector->begin(); iter != listenerVector->end();)
             {
                 auto l = *iter;
+                removeCapturedPointerListener(l);
                 l->setRegistered(false);
                 if (l->getAssociatedNode() != nullptr)
                 {
@@ -1632,25 +1626,17 @@ void EventDispatcher::removeEventListenersForListenerID(std::string_view listene
 
 void EventDispatcher::removeEventListenersForType(EventListener::Type listenerType)
 {
-    if (listenerType == EventListener::Type::TOUCH_ONE_BY_ONE)
+    if (listenerType == EventListener::Type::POINTER)
     {
-        removeEventListenersForListenerID(EventListenerTouchOneByOne::LISTENER_ID);
-    }
-    else if (listenerType == EventListener::Type::TOUCH_ALL_AT_ONCE)
-    {
-        removeEventListenersForListenerID(EventListenerTouchAllAtOnce::LISTENER_ID);
-    }
-    else if (listenerType == EventListener::Type::MOUSE)
-    {
-        removeEventListenersForListenerID(EventListenerMouse::LISTENER_ID);
+        removeEventListenersForListenerID(PointerEventListener::LISTENER_ID);
     }
     else if (listenerType == EventListener::Type::ACCELERATION)
     {
-        removeEventListenersForListenerID(EventListenerAcceleration::LISTENER_ID);
+        removeEventListenersForListenerID(AccelerationEventListener::LISTENER_ID);
     }
     else if (listenerType == EventListener::Type::KEYBOARD)
     {
-        removeEventListenersForListenerID(EventListenerKeyboard::LISTENER_ID);
+        removeEventListenersForListenerID(KeyboardEventListener::LISTENER_ID);
     }
     else
     {
@@ -1789,6 +1775,37 @@ void EventDispatcher::cleanToRemovedListeners()
     _toRemovedListeners.clear();
 }
 
+void EventDispatcher::removeCapturedPointerListener(EventListener* listener)
+{
+    if (listener == nullptr || listener->getType() != EventListener::Type::POINTER)
+        return;
+
+    auto* pointerListener = static_cast<PointerEventListener*>(listener);
+
+    for (auto iter = _capturedPointerListeners.begin(); iter != _capturedPointerListeners.end();)
+    {
+        if (iter->second.listener == pointerListener)
+            iter = _capturedPointerListeners.erase(iter);
+        else
+            ++iter;
+    }
+}
+
+void EventDispatcher::removeCapturedPointerListenersForTarget(Node* target)
+{
+    if (target == nullptr)
+        return;
+
+    for (auto iter = _capturedPointerListeners.begin(); iter != _capturedPointerListeners.end();)
+    {
+        auto* listener = iter->second.listener;
+        if (listener && listener->getAssociatedNode() == target)
+            iter = _capturedPointerListeners.erase(iter);
+        else
+            ++iter;
+    }
+}
+
 void EventDispatcher::releaseListener(EventListener* listener)
 {
 #if AX_ENABLE_GC_FOR_NATIVE_OBJECTS
@@ -1799,6 +1816,48 @@ void EventDispatcher::releaseListener(EventListener* listener)
     }
 #endif  // AX_ENABLE_GC_FOR_NATIVE_OBJECTS
     AX_SAFE_RELEASE(listener);
+}
+
+Camera* EventDispatcher::findHitCameraForListener(PointerEvent* event,
+                                                  PointerEventListener* listener,
+                                                  const std::vector<Camera*>& cameras)
+{
+    if (!event || !listener)
+        return nullptr;
+
+    auto* target = listener->getAssociatedNode();
+    if (!target)
+        return nullptr;
+
+    for (auto rit = cameras.rbegin(), ritEnd = cameras.rend(); rit != ritEnd; ++rit)
+    {
+        Camera* camera = *rit;
+        if (!camera || !camera->isVisible())
+            continue;
+
+        auto cameraFlag = static_cast<unsigned short>(camera->getCameraFlag());
+        if ((target->getCameraMask() & cameraFlag) == 0)
+            continue;
+
+        Vec3 hitPoint;
+
+        if (listener->onPointerHitTest)
+        {
+            if (!listener->onPointerHitTest(event, camera, &hitPoint))
+                continue;
+        }
+        else
+        {
+            if (!target->onPointerHitTest(event, camera, &hitPoint))
+                continue;
+        }
+
+        // TOOD: store hit point to event
+
+        return camera;
+    }
+
+    return nullptr;
 }
 
 }  // namespace ax
