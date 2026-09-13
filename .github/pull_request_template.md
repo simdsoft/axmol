@@ -8,6 +8,10 @@
 ### For each PR
 - [ ] Add Copyright if it missed:   
       - `"Copyright (c) 2019-present Simdsoft Limited."`
+- [ ] Copyright notice guidance:
+      - Axmol source files generally use the Simdsoft notice above.
+      - Project-wide contributor attribution is maintained in `LICENSE` and `AUTHORS.md`.
+      - Do not remove historical upstream or third-party copyright notices from files that already contain them.
 - [ ] I have signed the Axmol Contributor Agreement (or am covered by an Enterprise CCA).
 - [ ] I have performed a self-review of my code.
        
