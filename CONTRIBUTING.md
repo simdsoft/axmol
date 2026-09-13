@@ -1,4 +1,4 @@
-# Contributing to Axmol Engine
+# Contributing to Axmol
 
 ## General considerations
 
@@ -92,6 +92,12 @@ The patch must be _complete_. And by that, we mean:
 -   Patches that refactor key components will only be merged in the next major versions.
 
 [*]: If you don't have access to test your code in all the supported platforms, let us know.
+
+## Copyright and Intellectual Property
+
+> 
+> By submitting contributions you agree to the Axmol Contributor Agreement.
+> Source‑file headers state the copyright holder of assigned economic rights (Simdsoft Limited). Original author attribution is preserved in Git history, CLA records, and the root LICENSE file.
 
 ## About branch management
 

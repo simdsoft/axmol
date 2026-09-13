@@ -8,6 +8,7 @@
 ### For each PR
 - [ ] Add Copyright if it missed:   
       - `"Copyright (c) 2019-present Simdsoft Limited."`
+- [ ] I have signed the Axmol Contributor Agreement (or am covered by an Enterprise CCA).
 - [ ] I have performed a self-review of my code.
        
    Optional:
